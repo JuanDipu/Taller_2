@@ -1,0 +1,29 @@
+---
+title: "Taller2"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Taller 2
+
+### Jossie Esteban Molina P
+
+### Juan Diego Pulido R
+
+```{r}
+library('ISLR2')
+library('boot')
+library('splines')
+```
+
+## Problema 1
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
