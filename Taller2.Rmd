@@ -22,11 +22,345 @@ library('splines')
 
 ## Problema 1
 
-1)  
+1)  Separe aleatoriamente (pero guarde la semilla) su conjunto de datos en dos partes:
 
-```{r test, echo=FALSE}
-size<-nrow(Auto)
+
+```{r df_prueba, include=TRUE}
+set.seed(1) # Establecer la semilla para reproducibilidad
+indices <- sample(1:nrow(Auto), 1000)
+df_entrenamiento <- df[indices, ]
+df_prueba <- df[-indices, ]
+```
+
+```{r}
+set.seed(110)
+tamaño <- nrow(Auto)
+indices <- sample(seq_len(tamaño), size = floor(0.9 * tamaño))
+df_entrenamiento <- Auto[indices, ]
+df_prueba <- Auto[-indices, ]
+
+
+
+```
+
+
+## 2. Determinar el numero de Knots para una regresión spline usando validación cruzada
+
+```{r}
+set.seed(1)
+error <- NULL
+```
+
+
+```{r}
+datos_entrenamiento <- na.omit(Auto[entrenamiento,c('mpg','horsepower')])
+datos_entrenamiento $mpg <- as.numeric(datos_entrenamiento $mpg)
+train_data$horsepower <- as.numeric(train_data$horsepower)
+for (i in 1:10){
+  glm_model <- glm(mpg ~ bs(horsepower, knots=i, Boundary.knots = range(horsepower) + c(-10,+10)), data = train_data)
+  
+  cv_res <- cv.glm(train_data,glm_model,K=10)
+  cv_error[i] <- cv_res$delta[1]
+}
+
+mejor_knots <- which (cv_error == min(cv_error))
+
+```
+la validación cruzada en K folds evidencia que el menor ECM se da con `r mejor_knots` knots y un error de `r min(cv_error)`
+
+
+## 3. Compara modelos para encontrar el mejor modelo en base de Funciones
+
+### polinomio grado 2 global
+```{r}
 set.seed(410)
-train <- sample(size, 0.9*size)
-test <- seq(size)[!seq(size) %in% train]
+errores_base_funciones <- NULL
+
+glm_model <- glm(mpg ~ poly(horsepower,2), data = train_data)
+  
+cv_res <- cv.glm(train_data,glm_model,K=10)
+errores_base_funciones[1] <- cv_res$delta[1]
+
+```
+
+### polinomio b-spline ajustado 
+
+```{r}
+set.seed(410)
+glm_model <- glm(mpg ~ bs(horsepower, knots=mejor_knots, Boundary.knots = range(horsepower) + c(-10,+10)), data = train_data)
+  
+cv_res <- cv.glm(train_data,glm_model,K=10)
+errores_base_funciones[2] <- cv_res$delta[1]
+
+```
+
+### spline suavizado
+
+```{r, warning=FALSE}
+set.seed(410)
+mse_sample <- NULL
+sample_size_2 <- nrow(train_data) 
+rnd_sample = sample(rep(1:10,length.out=sample_size_2))
+for(i in 1:10){
+  tr <- na.omit(train_data[rnd_sample != i,])
+  tsr <- na.omit(train_data[rnd_sample == i,])
+  mod_ss = smooth.spline(tr$horsepower, tr$mpg, cv = TRUE)
+  mse_sample[i] <- mean((tsr$mpg - predict(mod_ss,tsr$horsepower)$y)**2)
+}
+
+errores_base_funciones[3] <- mean(mse_sample)
+
+```
+
+segun validación cruzada el menor ECM se da con el modelo de spline suavizado que muestra un error de `r errores_base_funciones[3]`
+
+## 4. Mejor Modelo de Regresión local
+
+```{r}
+set.seed(420)
+
+
+local_model_2 <- loess(mpg ~ horsepower, degree = 2, data = train_data)
+sample_size_2 <- nrow(train_data)
+mse_1 <- NULL
+rnd_sample = sample(rep(1:10,length.out=sample_size))
+for(i in 1:10){
+  tr <- na.omit(train_data[rnd_sample != i,])
+  tsr <- na.omit(train_data[rnd_sample == i,])
+  local_model_1 <- loess(mpg ~ horsepower, degree = 1, data = tr)
+  mse_1[i] <- mean((tsr$mpg - predict(local_model_1,tsr$horsepower))**2, na.rm = TRUE)
+  
+}
+
+
+sample_size_2 <- nrow(train_data)
+mse_2 <- NULL
+rnd_sample = sample(rep(1:10,length.out=sample_size_2))
+for(i in 1:10){
+  tr <- na.omit(train_data[rnd_sample != i,])
+  tsr <- na.omit(train_data[rnd_sample == i,])
+  local_model_2 <- loess(mpg ~ horsepower, degree = 2, data = tr)
+  mse_2[i] <- mean((tsr$mpg - predict(local_model_2,tsr$horsepower))**2, na.rm = TRUE)
+}
+
+errores_locales <- NULL
+
+errores_locales[1] <- mean(mse_1)
+errores_locales[2] <- mean(mse_2)
+
+
+```
+el modelo con menor ECM es aquel hecho con una regresión de grado 1, que nos da un ECM de `r errores_locales[1]`
+
+## 5. seleccionar el mejor de los 3 modelos
+
+### con spline suavizado
+
+```{r, warning = FALSE}
+test_data <- Auto[test,c('mpg','horsepower')]
+
+mod_spline = smooth.spline(train_data$horsepower, train_data$mpg, cv = TRUE)
+spl_error <- mean((test_data$mpg - predict(mod_spline,test_data$horsepower)$y)**2)
+spl_error
+```
+
+### Con Polinomios Locales
+
+```{r}
+
+local_model <- loess(mpg ~ horsepower, degree = 1, data = train_data)
+local_error <- mean((test_data$mpg - predict(local_model,test_data$horsepower))**2)
+local_error
+```
+### Polinomio regresión grado 2
+
+```{r, warning=FALSE}
+reg_model <- lm(mpg ~ poly(horsepower, 2), data = train_data)
+reg_error <- mean((test_data$mpg - predict(reg_model,data.frame(horsepower = test_data$horsepower)))**2)
+reg_error
+```
+
+
+
+```{r, warning=FALSE}
+reg_model <- lm(mpg ~ poly(horsepower, 2), data = train_data)
+reg_error <- mean((test_data$mpg - predict(reg_model,data.frame(horsepower = test_data$horsepower)))**2)
+reg_error
+```
+
+##6
+
+```{r = FALSE}
+
+# ECM 
+ecm <- function(x_train, y_train, x_test, y_test) {
+  # Ajuste de spline
+  spline <- smooth.spline(x_train, y_train, df = 5)
+  spline_predict <- predict(spline, x_test)$y
+  spline_ecm <- mean((y_test - spline_predict)^2)
+  
+  #  regresión local 
+  loess_fit <- loess(y_train ~ x_train)
+  loess_pred <- predict(loess_fit, x_test)
+  ecm_loess <- mean((y_test - loess_pred)^2)
+  
+  #  polinomio global
+  polinomio_fit <- lm(y_train ~ poly(x_train, degree = 3))
+  polinomio_pred <- predict(polinomio_fit, newdata = data.frame(x_train = x_test))
+  ecm_poly <- mean((y_test - polinomio_pred)^2)
+  
+  # Devolver los ECM para cada modelo
+  return(c(Spline = spline_ecm, Loess = ecm_loess, Polynomial = ecm_poly))
+}
+
+# Generar datos 
+set.seed(1)
+x <- seq(0, 10, by = 0.1)
+y <- sin(x) + rnorm(length(x), mean = 0, sd = 0.1)
+
+# Entrenamiento y prueba
+train_indices <- sample(1:length(x), 0.8 * length(x))
+x_train <- x[train_indices]
+y_train <- y[train_indices]
+x_test <- x[-train_indices]
+y_test <- y[-train_indices]
+
+# crooss validation
+q_folds <- 10
+fold_tam <- length(x_train) / q_folds
+ecms <- matrix(NA, nrow = q_folds, ncol = 3,
+               dimnames = list(NULL, c("Spline", "Loess", "Polynomial")))
+for (i in 1:q_folds) {
+  inicio <- ((i - 1) * fold_tam) + 1
+  fin <- min(length(x_train), inicio + fold_tam - 1)
+  x_train_fold <- x_train[-(inicio:fin)]
+  y_train_fold <- y_train[-(inicio:fin)]
+  x_val_fold <- x_train[inicio:fin]
+  y_val_fold <- y_train[inicio:fin]
+  
+  ecms[i, ] <- ecm(x_train_fold, y_train_fold, x_val_fold, y_val_fold)
+}
+
+# Graficar las distribuciones del ECM de prueba
+boxplot(ecms, col = "red", main = "Distribuciones de ECM de prueba",
+        xlab = "Modelo", ylab = "ECM")
+points(row(ecms) + jitter(0.1), ecms, col = "red", pch = 19)
+
+# Responder a la pregunta
+prom_ecms <- colMeans(ecms, na.rm = TRUE)  # Ignorar NA al calcular el promedio
+selected_approach <- names(prom_ecms)[which.min(prom_ecms)]
+cat("ECM promedio de prueba para cada modelo:\n")
+print(prom_ecms)
+cat("\nEl enfoque seleccionado basado en el ECM de predicción es:", selected_approach)
+
+
+```
+
+
+
+```{r =FALSE}
+
+library(ggplot2)
+library(np) 
+# Datos de ejemplo
+set.seed(1)
+tij <- seq(0, 1, length.out = 100)
+xij <- sin(2 * pi * tij) + rnorm(100, sd = 0.2) # Datos funcionales ruidosos
+
+# Calculamos el estimador de Nadaraya-Watson utilizando npreg()
+nad_wat <- np::npregbw(xij ~ tij, bwmethod = "cv.ls")
+fit_nat_wat <- np::npreg(bws = nad_wat)
+
+# Generamos las predicciones para un rango de valores de 't'
+t_values <- seq(min(tij), max(tij), length.out = 100)
+predictions <- predict(fit_nat_wat, newdata = data.frame(tij = t_values))
+
+# Visualización
+ggplot(data.frame(tij, xij), aes(x = tij, y = xij)) +
+  geom_point(alpha = 0.5) + # Puntos observados
+  geom_line(data = data.frame(tij = t_values, xij = predictions), aes(x = tij, y = xij), color = "red") +
+  ggtitle("Estimador de Nadaraya-Watson para Datos Funcionales Ruidosos") +
+  xlab("Tiempo t") +
+  ylab("Observaciones xij")
+
+```
+
+
+
+
+#### Estimador de Nadaraya-Watson
+
+El estimador de Nadaraya-Watson para la i-ésima unidad estadística en \( t \), es decir, \( \hat{x}_i(t) \), se define como:
+
+\[
+\hat{x}_i(t) = \frac{\sum_{j=1}^{n_i} K_h(t - t_{ij}) x_{ij}}{\sum_{j=1}^{n_i} K_h(t - t_{ij})}
+\]
+
+donde:
+
+- \( K_h(\cdot) \) es la función kernel que pondera las observaciones cercanas al punto \( t \) más fuertemente que las lejanas.
+- \( h \) es el ancho de banda del kernel, que determina cuán suave será el estimador.
+- \( t_{ij} \) son los puntos en los que la función \( x_i \) es observada.
+- \( x_{ij} \) son los valores observados de la función \( x_i \) en los puntos \( t_{ij} \).
+
+La elección del kernel \( K \) y del ancho de banda \( h \) son críticos para el rfinimiento del estimador. Kernels comunes incluyen el gaussiano y el Epanechnikov, aunque hay muchos otros. El ancho de banda controla el equilibrio entre sesgo y varianza en el estimador: un \( h \) grande puede suavizar demasiado los datos y ocultar características importantes, mientras que un \( h \) pequeño puede dejar demasiado ruido sin suavizar.
+
+
+#### (8) Punto
+
+Escriba el estimador de Nadarya–Watson para la función media en t, es decir, ˆµ(t). Note que todos los datos discretizados son utilizados en la estimación de la función media.
+
+#### Estimador de Nadaraya-Watson para la Función Media
+
+Para estimar la función media $\hat{\mu}(t)$ en un punto específico $t$, utilizando todas las observaciones disponibles, empleamos el estimador de Nadaraya-Watson. Este estimador pondera las observaciones en función de su proximidad al punto $t$, utilizando un kernel y un ancho de banda determinados.
+
+La fórmula del estimador de Nadaraya-Watson para la función media en $t$ se expresa así:
+
+\[
+\hat{\mu}(t) = \frac{\sum_{i=1}^{N} \sum_{j=1}^{n_i} K_h(t - t_{ij}) x_{ij}}{\sum_{i=1}^{N} \sum_{j=1}^{n_i} K_h(t - t_{ij})}
+\]
+
+Donde:
+
+\begin{itemize}
+    \item $N$ representa el número total de unidades estadísticas.
+    \item $n_i$ es la cantidad de observaciones para la $i$-ésima unidad estadística.
+    \item $K_h(\cdot)$ es la función kernel que asigna pesos a las observaciones según su cercanía a $t$.
+    \item $h$ es el ancho de banda del kernel, determinando la suavidad del estimador.
+    \item $t_{ij}$ son los tiempos en los cuales se observa la función $x_i$ para la $i$-ésima unidad estadística.
+    \item $x_{ij}$ son los valores observados de la función $x_i$ en los puntos $t_{ij}$.
+\end{itemize}
+
+Este método permite aprovechar todas las observaciones disponibles para estimar la función media en cualquier punto del dominio.
+
+
+####8 
+```{r= FALSE}
+
+# Cargar librerías
+library(ggplot2)
+library(np)
+
+# Simular algunos datos como ejemplo
+set.seed(123)
+time <- seq(0, 10, length.out = 200)
+value <- sin(time) + rnorm(200, sd = 0.3)
+data <- data.frame(time = time, value = value)
+
+# Ajustar el modelo de Nadaraya-Watson para la función media
+nad_wat <- npregbw(value ~ time, bwmethod = "cv.ls", data = data)
+fit_nat_wat <- npreg(bws = nad_wat, data = data)
+
+# Crear un nuevo dataframe para las predicciones
+time_new <- seq(min(data$time), max(data$time), length.out = 100)
+pred <- predict(fit_nat_wat, newdata = data.frame(time = time_new))
+
+# Gráfica de la función media estimada
+ggplot(data, aes(x = time, y = value)) +
+  geom_point(alpha = 0.4) +
+  geom_line(data = data.frame(time = time_new, value = pred), aes(x = time, y = value), color = "blue") +
+  ggtitle("Estimador de Nadaraya-Watson para la Función Media") +
+  xlab("Tiempo (t)") +
+  ylab("Valor Estimado")
+
 ```
